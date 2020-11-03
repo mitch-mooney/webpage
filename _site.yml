@@ -1,0 +1,9 @@
+name: "personal-website"
+output_dir: "."
+navbar:
+  title: "Personal Website"
+  left:
+    - text: "International ratings"
+      href: index.html
+    - text: "SSN ratings"
+      href: about.html

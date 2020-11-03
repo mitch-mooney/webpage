@@ -1,0 +1,281 @@
+---
+title: "International ratings"
+author: "Mitchell Mooney"
+date: "03/11/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## International Netball
+
+Using Glicko 2 ratings of incomplete data natial teams ratings are calculated. There is no freely available international results repository but does include the last World Cup and so it likely to be a reasonable estimate of the top 5 teams.
+
+Link to resources about the Glicko 2 ratings can be found here:
+http://www.glicko.net/glicko/glicko2.pdf
+
+
+```{r cars, message=FALSE, warning=FALSE, include=FALSE}
+library(PlayerRatings)
+library(tidyverse)
+library(dplyr)
+library(kableExtra)
+library(stringr)
+library(gghighlight)
+library(directlabels)
+library(data.table)
+library(plotly)
+library(rjson)
+library(ggplot2)
+library(flipTime)
+
+# Read in all json files
+filenames <- list.files("data/Internationals/", pattern="*.json", full.names=TRUE) # this should give you a character vector, with each file name represented by an entry
+myJSON <- lapply(filenames, function(x) fromJSON(file=x)) # a list in which each element is one of your original JSON files
+
+#create dataframe with same columns as output
+netball<- data.frame(matrix (ncol = 15, nrow =0))
+names<- c("squadId","period","squadCode","squadNickname","squadName","stat","value","round", "home_team", "away_team", "game", "year", "matchType", "team", "opponent")
+colnames(netball)<-names
+#run for loop to gather all the scoreFlow data into a dataframe
+for (i in myJSON){
+  team_stats <- i$teamPeriodStats$team
+  team_stats <- dplyr::bind_rows(team_stats)
+  team_info <- i$teamInfo$team
+  team_info <- dplyr::bind_rows(team_info)
+  home_info <- i$teamInfo$team[[1]]$squadName
+  away_info <- i$teamInfo$team[[2]]$squadName
+  match_time <- i$matchInfo
+  match_time<- dplyr::bind_rows(match_time)
+  match_time <- match_time%>%separate(localStartTime, c("year", "month", "day"), "-")
+  team_stats <- dplyr::left_join(team_stats, team_info, by = "squadId")
+  home_team <- dplyr::data_frame(squadId = c(i$matchInfo$homeSquadId, 
+                                             i$matchInfo$awaySquadId), homeTeam = c(1L, 0L))
+  team_stats <- dplyr::left_join(team_stats, home_team, by = "squadId")
+  final_period <- i$matchInfo$periodCompleted
+  team_stats <- team_stats %>% dplyr::filter(period <= final_period) %>% 
+    tidyr::gather(stat, value, -squadId, -squadName, -squadNickname, 
+                  -squadCode, -period) %>% dplyr::mutate(round = i$matchInfo$roundNumber,
+                                                         home_team = i$matchInfo$homeSquadId,
+                                                         away_team = i$matchInfo$awaySquadId,
+                                                         game = i$matchInfo$matchNumber,
+                                                         year = match_time$year,
+                                                         date = match_time$utcStartTime,
+                                                         matchType = match_time$matchType,
+                                                         team = ifelse(squadId == home_team, home_info, away_info),
+                                                         opponent = ifelse(squadId == away_team, home_info, away_info))
+  team_stats <- team_stats %>%
+    filter(stat == "goals" | stat == "points")
+  netball <- plyr::rbind.fill(netball, team_stats)
+}
+
+
+#clean data
+netball$team<-str_replace(netball$team, "Australian Diamonds", "Australia")
+netball$opponent<-str_replace(netball$opponent,"Australian Diamonds", "Australia")
+netball$team<-str_replace(netball$team, "New Zealand Silver Ferns", "New Zealand")
+netball$opponent<-str_replace(netball$opponent,"New Zealand Silver Ferns", "New Zealand")
+
+netball <- netball %>% 
+  mutate(stat = "goals") %>% 
+  group_by(date, team, period) %>%
+  top_n(1, abs(value)) %>% 
+  distinct(period, .keep_all = TRUE)
+
+
+#create round ID string for later
+SSN <- netball %>%
+  mutate(matchCode = ifelse(matchType == "F" & round > 10, round+(game/10), ifelse(matchType == "F" & round <10, 15+(game/10), round)))
+SSN$seas_rnd<-paste(SSN$year, formatC((SSN$matchCode*10+1), width=3, flag="0"), sep=".") #get unique number in a sequence
+#create unique match ID
+SSN$match_ID <- paste(SSN$year, SSN$home_team, SSN$away_team, SSN$seas_rnd, width=3 ,sep=".")
+# aggregate score to match score
+teams<-  aggregate(SSN$value,by=list(Category = SSN$team, SSN$opponent, SSN$seas_rnd, SSN$match_ID, SSN$date), FUN=sum)
+# rename columns
+names(teams)[1] <- "team"
+names(teams)[2] <- "opponent"
+names(teams)[3] <- "round"
+names(teams)[4] <- "match_ID"
+names(teams)[5] <- "date"
+names(teams)[6] <- "score"
+
+teams$date<-AsDateTime(teams$date) #make string a datetime
+teams$date <- as.POSIXct(teams$date)
+teams$match <- trunc(rank(teams$date))
+
+#sapply(teams, class) # check type of variables
+teams$round <- as.numeric(teams$round) #turn round into numerical value
+
+#score difference from long format
+teams<-teams %>% 
+  group_by(match_ID, date) %>% 
+  mutate(score_diff = (score*2) - sum(score)) %>% 
+  filter(team != "All Stars", team != "NZ Men's Invitational Team",
+         opponent !=  "All Stars", opponent != "NZ Men's Invitational Team")
+#turn score difference into an integer W = 1, D = 0.5, L = 0
+teams$results <- ifelse(teams$score_diff < 0, 0, ifelse(teams$score_diff > 0, 1, 0.5))
+teams$week <- match(teams$match, sort(unique(teams$match))) #return order of for round unique value
+
+#df1 <- teams[!duplicated(teams$match_ID),]
+df1 <- teams[!duplicated(teams$week),]
+#glicko2 dataframe
+df<- df1%>%
+  ungroup() %>% 
+  select(week, team, opponent, results) 
+
+#glicko2
+#glicko2(df, history = T)
+rating<-glicko2(df, history = T)
+
+#plot(rating, players = rating$ratings$player)
+
+#glicko(df, history = T)
+
+#hist(rating)
+
+plot_df <- as.data.frame(rating$history)
+setDT(plot_df, keep.rownames = TRUE)[]
+plot_df <- melt(plot_df)
+plot_df$variable <- as.character(plot_df$variable)
+plot_df[,"week"] <- NA
+plot_df[,"var"] <- NA
+plot_df[,4:5] <- data.frame(do.call('rbind', strsplit(as.character(plot_df$variable),'.',fixed=TRUE)))
+plot_df$var <- as.character(plot_df$var) # make var a charecter
+plot_df$week <- as.character(plot_df$week) # make week a charecter
+plot_df$week<- as.numeric(plot_df$week) # make week a numerical value
+names(plot_df)[1] <- "team" # change column name to team for join
+
+# Filter only ratings
+ratings_df <- plot_df %>%
+  filter(var == "Rating")
+
+library(reactable)
+library(htmltools)
+
+rating_history <- ratings_df %>% 
+  filter(var == "Rating") %>% 
+  group_by(week) %>% 
+  mutate(rank = rank(-value))%>% 
+  group_by(team) %>% 
+  mutate(lag = lag(rank, n =2)) %>% 
+  ungroup()%>% 
+  mutate(change = ifelse(rank < lag, "Up", ifelse(rank > lag, "Down", "Unchanged"))) %>% 
+  filter(week == max(week)) %>% 
+  select(team, change) %>%
+  rename(Player = team)
+
+team_rate <- rating$ratings
+team_rate<-team_rate %>% 
+  mutate(Rank = rank(-Rating),Rating = round(Rating, 0)) %>% 
+  select(Rank, Player, Rating) 
+
+team_rate<-left_join(rating_history, team_rate, by = c("Player"))
+team_rate <- team_rate %>% 
+  arrange(-Rating)
+
+col_order <- c("Rank", "change", "Player", "Rating")
+team_rate <- team_rate[, col_order]
+
+
+# add sparkline to team ratings
+#make dataframe with history ratings
+glicko <- as.data.frame(rating$history)
+setDT(glicko, keep.rownames = TRUE)[]
+glicko <- melt(glicko)
+glicko$variable <- as.character(glicko$variable)
+var <-data.frame(do.call('rbind', strsplit(as.character(glicko$variable),'.',fixed=TRUE)))
+glicko<-cbind(glicko, var)
+names(glicko)[1] <- "Team"
+names(glicko)[4] <- "match"
+names(glicko)[5] <- "var"
+glicko <- glicko %>%
+  filter(var == "Rating")
+
+glicko <- glicko %>% 
+  group_by(Team) %>%
+  mutate(rate_change = (value) - lag(value)) %>%
+  mutate(rate_change = ifelse(is.na(rate_change), 2200 - value, rate_change)) %>% 
+  ungroup()
+
+glicko_clean<-glicko[apply(glicko!=0, 1, all),]
+glicko_clean <- glicko_clean %>% filter(var == "Rating")
+glicko_clean$match <- as.integer(glicko_clean$match)
+
+glicko_clean<-glicko_clean%>%
+  group_by(Team)%>%
+  mutate(match_num = order(order(match, decreasing=F)))%>%
+  select(Team, match_num, value, rate_change) %>% 
+  ungroup()
+
+#number of matches back you want to display
+rnd = 10
+
+glicko_table<- glicko_clean %>% 
+  group_by(Team) %>% 
+  do(tail(., n=rnd))
+# add sparkline list to the dataframe
+library(sparkline)
+
+spark_table <- glicko_table %>%
+  group_by(Team) %>%
+  summarise(Rating = round(tail(value, n = 1), 0),sparkline = list(value)) %>% 
+  rename(Player = Team)
+
+spark_table <- merge(team_rate,spark_table, by=c("Rating", "Player"), all.x=TRUE, all.y=TRUE)
+
+col_order <- c("Rank", "change", "Player",
+               "Rating", "sparkline")
+spark_table <- spark_table[, col_order]
+# Icon to indicate trend: unchanged, up, down, or new
+trend_indicator <- function(change = c("Unchanged", "Up", "Down")) {
+  value <- match.arg(change)
+  label <- switch(change,
+                  Unchanged = "Unchanged", Up = "Trending up",
+                  Down = "Trending down")
+  
+  # Add img role and tooltip/label for accessibility
+  args <- list(role = "img", title = change)
+  
+  if (value == "Unchanged") {
+    args <- c(args, list("–", style = "color: #666; font-weight: 700"))
+  } else if (value == "Up") {
+    args <- c(args, list(shiny::icon("caret-up"), style = "color: #1ed760"))
+  } else if (value == "Down") {
+    args <- c(args, list(shiny::icon("caret-down"), style = "color: #cd1a2b"))
+  } else {
+    args <- c(args, list(shiny::icon("circle"), style = "color: #2e77d0; font-size: 10px"))
+  }
+  do.call(span, args)
+}
+
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+# Call reactable table with features
+reactable(spark_table, defaultSorted  = c("Rank"), defaultPageSize = 14, columns = list(
+  Rank = colDef(maxWidth = 75, align = "center"),
+  change = colDef(
+    header = span("", class = "sr-only"),
+    sortable = FALSE,
+    align = "left",
+    width = 40,
+    cell = function(change) trend_indicator(change)
+  ),
+  Player = colDef(name = "Team", maxWidth = 200, align = "center", cell = function(value) {
+    img_src <- knitr::image_uri(sprintf("images/%s.png", value))
+    image <- img(src = img_src, height = "60px", alt = value)
+    tagList(
+      div(style = list(display = "inline-block", width = "200px"), image)
+    )
+  }),
+  Rating = colDef(maxWidth = 100, align = "center", format = colFormat(digits = 0)),
+  
+  sparkline = colDef(name = "Last 10 recorded matches", align = "center", cell = function(value, index) {
+    sparkline(spark_table$sparkline[[index]], height = "50px", width = "150px")
+  })
+))
+
+
+```
