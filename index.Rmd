@@ -1,7 +1,7 @@
 ---
-title: "International ratings"
+title: "SSN"
 author: "Mitchell Mooney"
-date: "03/11/2020"
+date: "updated on 03/11/2020"
 output: html_document
 ---
 
@@ -9,15 +9,13 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## International Netball
+## Suncorp Super Netball
 
-Using Glicko 2 ratings of incomplete data natial teams ratings are calculated. There is no freely available international results repository but does include the last World Cup and so it likely to be a reasonable estimate of the top 5 teams.
+Using Glicko 2 ratings of the Suncorp Super Netball league. Ratings began during the ANZ premiership and include all matches of the Suncorp Super Netball league.
 
-Link to resources about the Glicko 2 ratings can be found here:
-http://www.glicko.net/glicko/glicko2.pdf
+Data is sourced from Champion Data 
 
-
-```{r cars, message=FALSE, warning=FALSE, include=FALSE}
+```{r message=FALSE, warning=FALSE, include=FALSE}
 library(PlayerRatings)
 library(tidyverse)
 library(dplyr)
@@ -32,7 +30,7 @@ library(ggplot2)
 library(flipTime)
 
 # Read in all json files
-filenames <- list.files("data/Internationals/", pattern="*.json", full.names=TRUE) # this should give you a character vector, with each file name represented by an entry
+filenames <- list.files("data/National/", pattern="*.json", full.names=TRUE) # this should give you a character vector, with each file name represented by an entry
 myJSON <- lapply(filenames, function(x) fromJSON(file=x)) # a list in which each element is one of your original JSON files
 
 #create dataframe with same columns as output
@@ -41,42 +39,62 @@ names<- c("squadId","period","squadCode","squadNickname","squadName","stat","val
 colnames(netball)<-names
 #run for loop to gather all the scoreFlow data into a dataframe
 for (i in myJSON){
-  team_stats <- i$teamPeriodStats$team
-  team_stats <- dplyr::bind_rows(team_stats)
-  team_info <- i$teamInfo$team
-  team_info <- dplyr::bind_rows(team_info)
-  home_info <- i$teamInfo$team[[1]]$squadName
-  away_info <- i$teamInfo$team[[2]]$squadName
-  match_time <- i$matchInfo
-  match_time<- dplyr::bind_rows(match_time)
-  match_time <- match_time%>%separate(localStartTime, c("year", "month", "day"), "-")
-  team_stats <- dplyr::left_join(team_stats, team_info, by = "squadId")
-  home_team <- dplyr::data_frame(squadId = c(i$matchInfo$homeSquadId, 
-                                             i$matchInfo$awaySquadId), homeTeam = c(1L, 0L))
-  team_stats <- dplyr::left_join(team_stats, home_team, by = "squadId")
-  final_period <- i$matchInfo$periodCompleted
-  team_stats <- team_stats %>% dplyr::filter(period <= final_period) %>% 
-    tidyr::gather(stat, value, -squadId, -squadName, -squadNickname, 
-                  -squadCode, -period) %>% dplyr::mutate(round = i$matchInfo$roundNumber,
-                                                         home_team = i$matchInfo$homeSquadId,
-                                                         away_team = i$matchInfo$awaySquadId,
-                                                         game = i$matchInfo$matchNumber,
-                                                         year = match_time$year,
-                                                         date = match_time$utcStartTime,
-                                                         matchType = match_time$matchType,
-                                                         team = ifelse(squadId == home_team, home_info, away_info),
-                                                         opponent = ifelse(squadId == away_team, home_info, away_info))
-  team_stats <- team_stats %>%
-    filter(stat == "goals" | stat == "points")
-  netball <- plyr::rbind.fill(netball, team_stats)
+    team_stats <- i$teamPeriodStats$team
+    team_stats <- dplyr::bind_rows(team_stats)
+    team_info <- i$teamInfo$team
+    team_info <- dplyr::bind_rows(team_info)
+    home_info <- i$teamInfo$team[[1]]$squadName
+    away_info <- i$teamInfo$team[[2]]$squadName
+    match_time <- i$matchInfo
+    match_time<- dplyr::bind_rows(match_time)
+    match_time <- match_time%>%separate(localStartTime, c("year", "month", "day"), "-")
+    team_stats <- dplyr::left_join(team_stats, team_info, by = "squadId")
+    home_team <- dplyr::data_frame(squadId = c(i$matchInfo$homeSquadId, 
+                                               i$matchInfo$awaySquadId), homeTeam = c(1L, 0L))
+    team_stats <- dplyr::left_join(team_stats, home_team, by = "squadId")
+    final_period <- i$matchInfo$periodCompleted
+    team_stats <- team_stats %>% dplyr::filter(period <= final_period) %>% 
+      tidyr::gather(stat, value, -squadId, -squadName, -squadNickname, 
+                    -squadCode, -period) %>% dplyr::mutate(round = i$matchInfo$roundNumber,
+                                                           home_team = i$matchInfo$homeSquadId,
+                                                           away_team = i$matchInfo$awaySquadId,
+                                                           game = i$matchInfo$matchNumber,
+                                                           year = match_time$year,
+                                                           date = match_time$utcStartTime,
+                                                           matchType = match_time$matchType,
+                                                           team = ifelse(squadId == home_team, home_info, away_info),
+                                                           opponent = ifelse(squadId == away_team, home_info, away_info))
+    team_stats <- team_stats %>%
+      filter(stat == "goals" | stat == "points")
+    netball <- plyr::rbind.fill(netball, team_stats)
 }
 
 
 #clean data
-netball$team<-str_replace(netball$team, "Australian Diamonds", "Australia")
-netball$opponent<-str_replace(netball$opponent,"Australian Diamonds", "Australia")
-netball$team<-str_replace(netball$team, "New Zealand Silver Ferns", "New Zealand")
-netball$opponent<-str_replace(netball$opponent,"New Zealand Silver Ferns", "New Zealand")
+netball$team<-str_replace(netball$team, "Ascot Park Hotel Southern Steel", "Southern Steel")
+netball$opponent<-str_replace(netball$opponent,"Ascot Park Hotel Southern Steel", "Southern Steel")
+netball$team<-str_replace(netball$team, "Cold Power Magic", "Waikato BOP Magic")
+netball$opponent<-str_replace(netball$opponent,"Cold Power Magic", "Waikato BOP Magic")
+netball$team<-str_replace(netball$team, "WBOP Magic", "Waikato BOP Magic")
+netball$opponent<-str_replace(netball$opponent,"WBOP Magic", "Waikato BOP Magic")
+netball$team<-str_replace(netball$team, "The Coffee Club Queensland Firebirds", "Queensland Firebirds")
+netball$opponent<-str_replace(netball$opponent,"The Coffee Club Queensland Firebirds", "Queensland Firebirds")
+netball$team<-str_replace(netball$team, "Splice Construction Magic", "Waikato BOP Magic")
+netball$opponent<-str_replace(netball$opponent,"Splice Construction Magic", "Waikato BOP Magic")
+netball$team<-str_replace(netball$team, "SKYCITY Mystics", "Northern Mystics")
+netball$opponent<-str_replace(netball$opponent,"SKYCITY Mystics", "Northern Mystics")
+netball$team<-str_replace(netball$team, "The Good Oil Tactix", "Tactix")
+netball$opponent<-str_replace(netball$opponent,"The Good Oil Tactix", "Tactix")
+netball$team<-str_replace(netball$team, "Silvermoon Tactix", "Tactix")
+netball$opponent<-str_replace(netball$opponent,"Silvermoon Tactix", "Tactix")
+netball$team<-str_replace(netball$team, "Mainland Tactix", "Tactix")
+netball$opponent<-str_replace(netball$opponent,"Mainland Tactix", "Tactix")
+netball$team<-str_replace(netball$team, "Te Wānanga o Raukawa Pulse", "Central Pulse")
+netball$opponent<-str_replace(netball$opponent,"Te Wānanga o Raukawa Pulse", "Central Pulse")
+netball$team<-str_replace(netball$team, "Te Wananga o Raukawa Pulse", "Central Pulse")
+netball$opponent<-str_replace(netball$opponent,"Te Wananga o Raukawa Pulse", "Central Pulse")
+netball$team<-str_replace(netball$team, "Collingwood Magpies", "Magpies Netball")
+netball$opponent<-str_replace(netball$opponent,"Collingwood Magpies", "Magpies Netball")
 
 netball <- netball %>% 
   mutate(stat = "goals") %>% 
@@ -110,10 +128,8 @@ teams$round <- as.numeric(teams$round) #turn round into numerical value
 
 #score difference from long format
 teams<-teams %>% 
-  group_by(match_ID, date) %>% 
-  mutate(score_diff = (score*2) - sum(score)) %>% 
-  filter(team != "All Stars", team != "NZ Men's Invitational Team",
-         opponent !=  "All Stars", opponent != "NZ Men's Invitational Team")
+  group_by(match_ID) %>% 
+  mutate(score_diff = (score*2) - sum(score))
 #turn score difference into an integer W = 1, D = 0.5, L = 0
 teams$results <- ifelse(teams$score_diff < 0, 0, ifelse(teams$score_diff > 0, 1, 0.5))
 teams$week <- match(teams$match, sort(unique(teams$match))) #return order of for round unique value
@@ -150,12 +166,14 @@ names(plot_df)[1] <- "team" # change column name to team for join
 # Filter only ratings
 ratings_df <- plot_df %>%
   filter(var == "Rating")
+```
 
-library(reactable)
-library(htmltools)
+```{r message=FALSE, warning=FALSE, include=FALSE}
+aus_teams <- c("Adelaide Thunderbirds","GIANTS Netball","Magpies Netball", "Melbourne Vixens" ,"NSW Swifts", "Queensland Firebirds","Sunshine Coast Lightning","West Coast Fever")
 
 rating_history <- ratings_df %>% 
   filter(var == "Rating") %>% 
+  filter(team %in% aus_teams) %>% 
   group_by(week) %>% 
   mutate(rank = rank(-value))%>% 
   group_by(team) %>% 
@@ -168,6 +186,7 @@ rating_history <- ratings_df %>%
 
 team_rate <- rating$ratings
 team_rate<-team_rate %>% 
+  filter(Player %in% aus_teams) %>% 
   mutate(Rank = rank(-Rating),Rating = round(Rating, 0)) %>% 
   select(Rank, Player, Rating) 
 
@@ -208,17 +227,16 @@ glicko_clean<-glicko_clean%>%
   mutate(match_num = order(order(match, decreasing=F)))%>%
   select(Team, match_num, value, rate_change) %>% 
   ungroup()
+rnd = 17
 
-#number of matches back you want to display
-rnd = 10
-
-glicko_table<- glicko_clean %>% 
+glicko_clean<- glicko_clean %>% 
+  filter(Team %in% aus_teams) %>% 
   group_by(Team) %>% 
   do(tail(., n=rnd))
-# add sparkline list to the dataframe
+
 library(sparkline)
 
-spark_table <- glicko_table %>%
+spark_table <- glicko_clean %>%
   group_by(Team) %>%
   summarise(Rating = round(tail(value, n = 1), 0),sparkline = list(value)) %>% 
   rename(Player = Team)
@@ -249,11 +267,9 @@ trend_indicator <- function(change = c("Unchanged", "Up", "Down")) {
   }
   do.call(span, args)
 }
-
 ```
 
 ```{r echo=FALSE, message=FALSE, warning=FALSE}
-# Call reactable table with features
 reactable(spark_table, defaultSorted  = c("Rank"), defaultPageSize = 14, columns = list(
   Rank = colDef(maxWidth = 75, align = "center"),
   change = colDef(
@@ -263,7 +279,7 @@ reactable(spark_table, defaultSorted  = c("Rank"), defaultPageSize = 14, columns
     width = 40,
     cell = function(change) trend_indicator(change)
   ),
-  Player = colDef(name = "Team", maxWidth = 200, align = "center", cell = function(value) {
+  Player = colDef(name = "Team", maxWidth = 150, align = "center", cell = function(value) {
     img_src <- knitr::image_uri(sprintf("images/%s.png", value))
     image <- img(src = img_src, height = "60px", alt = value)
     tagList(
@@ -272,10 +288,9 @@ reactable(spark_table, defaultSorted  = c("Rank"), defaultPageSize = 14, columns
   }),
   Rating = colDef(maxWidth = 100, align = "center", format = colFormat(digits = 0)),
   
-  sparkline = colDef(name = "Last 10 recorded matches", align = "center", cell = function(value, index) {
+  sparkline = colDef(name = "2020 Progress", cell = function(value, index) {
     sparkline(spark_table$sparkline[[index]], height = "50px", width = "150px")
   })
 ))
-
-
 ```
+
