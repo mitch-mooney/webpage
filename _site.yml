@@ -4,6 +4,6 @@ navbar:
   title: "Personal Website"
   left:
     - text: "SSN ratings"
-      href: about.html
-    - text: "International ratings"
       href: index.html
+    - text: "International ratings"
+      href: about.html
